@@ -1,6 +1,6 @@
 import os
 import requests
-from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template_string, request, jsonify, session
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_micro_saas_key'
@@ -44,7 +44,7 @@ HTML_TEMPLATE = """
     <script>
         document.getElementById('pipeline-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const desc = document.getElementById('repo_desc',).value;
+            const desc = document.getElementById('repo_desc').value;
             const resultDiv = document.getElementById('result');
             resultDiv.style.display = 'block';
             resultDiv.innerHTML = '<span class="text-yellow-400">⏳ جاري الاتصال بمحرك GitHub API وتوليد المستودع...</span>';
@@ -83,7 +83,6 @@ def generate():
     data = request.get_json() or {}
     repo_desc = data.get('repo_desc', 'football-pipeline-project')
     
-    # تنظيف اسم المستودع ليكون صالحاً لـ GitHub
     repo_name = "".join(c if c.isalnum() or c in ('-', '_') else '-' for c in repo_desc.lower())[:30].strip('-')
     if not repo_name:
         repo_name = "football-pipeline-auto"
@@ -121,4 +120,5 @@ def generate():
         return jsonify({'error': f'فشل إنشاء المستودع في GitHub: {err_msg}'}), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
