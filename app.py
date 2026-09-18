@@ -1,11 +1,14 @@
 import os
-from flask import Flask, redirect, render_template_string, request, session
-import stripe
+import requests
+from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for
 
 app = Flask(__name__)
-app.secret_key = "super_secret_micro_saas_key"
+app.secret_key = 'super_secret_micro_saas_key'
 
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "sk_test_placeholder")
+@app.before_request
+def init_user_session():
+    if 'balance' not in session:
+        session['balance'] = 10.0
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -13,108 +16,109 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoPipeline SaaS</title>
+    <title>منصة توليد الأنابيب البرمجية - AutoPipeline SaaS</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen font-sans p-4">
-    <div class="max-w-md mx-auto">
-        <header class="bg-slate-800 border border-slate-700 rounded-2xl p-4 shadow-xl mb-6">
-            <h1 class="text-xl font-bold text-sky-400 mb-2">AutoPipeline SaaS ⚡</h1>
-            <div class="bg-slate-900 rounded-xl p-4 flex justify-between items-center border border-slate-700">
-                <div>
-                    <p class="text-xs text-slate-400">رصيدك الحالي</p>
-                    <p class="text-2xl font-bold text-white">${{ "%.2f"|format(balance) }}</p>
-                </div>
-                <a href="/create-checkout-session" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-sm">💳 شحن 5$</a>
+    <div class="max-w-xl mx-auto">
+        <header class="bg-slate-800 border border-slate-700 rounded-2xl p-4 shadow-xl mb-6 flex justify-between items-center">
+            <div>
+                <p class="text-xs text-slate-400">رصيد المحفظة الحالي</p>
+                <p class="text-2xl font-bold text-emerald-400">{{ "%.2f"|format(balance) }}$</p>
             </div>
         </header>
 
-        <main class="bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-xl mb-6">
-            <h2 class="text-sm font-bold text-emerald-400 mb-3">🤖 توليد ملفات الأتمتة (التكلفة: $0.10)</h2>
-            <form action="/generate" method="POST" class="space-y-4">
-                <textarea name="project_desc" rows="3" required class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white text-sm focus:outline-none focus:border-sky-500" placeholder="اكتب وصف مشروعك هنا..."></textarea>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm">توليد الآن 🚀</button>
+        <main class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl mb-6">
+            <h2 class="text-xl font-bold text-sky-400 mb-4">🛠️ توليد أنبوب برمجي جديد عبر GitHub</h2>
+            <form id="pipeline-form" class="space-y-4">
+                <div>
+                    <label for="repo_desc" class="block text-sm text-slate-300 mb-1">وصف المشروع أو الأنبوب البرمجي:</label>
+                    <textarea id="repo_desc" name="repo_desc" rows="3" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-sky-500" placeholder="مثال: football-pipeline-v1"></textarea>
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg transition">توليد الأنبوب الآن (-1 رصيد)</button>
             </form>
+            <div id="result" class="mt-4 p-4 bg-slate-900 border border-slate-700 rounded-lg hidden break-all"></div>
         </main>
-
-        {% if result %}
-        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-xl space-y-4">
-            <h3 class="text-sm font-bold text-emerald-400">✨ النتائج:</h3>
-            <pre class="bg-slate-900 p-3 rounded-xl text-teal-300 overflow-x-auto font-mono text-xs"><code>{{ result }}</code></pre>
-        </div>
-        {% endif %}
     </div>
+
+    <script>
+        document.getElementById('pipeline-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const desc = document.getElementById('repo_desc',).value;
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<span class="text-yellow-400">⏳ جاري الاتصال بمحرك GitHub API وتوليد المستودع...</span>';
+            
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ repo_desc: desc })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    resultDiv.innerHTML = `<span class="text-emerald-400 font-bold">✅ تم التوليد بنجاح!</span><br>رابط المستودع: <a href="${data.repo_url}" target="_blank" class="text-sky-400 underline">${data.repo_url}</a>`;
+                    setTimeout(() => { location.reload(); }, 3000);
+                } else {
+                    resultDiv.innerHTML = `<span class="text-red-400 font-bold">❌ خطأ: ${data.error}</span>`;
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `<span class="text-red-400">❌ حدث خطأ في الاتصال بالخادم.</span>`;
+            }
+        });
+    </script>
 </body>
 </html>
 """
 
-
-@app.route("/")
+@app.route('/')
 def index():
-  if "balance" not in session:
-    session["balance"] = 0.50
-  result = session.pop("result", None)
-  return render_template_string(
-      HTML_TEMPLATE, balance=session["balance"], result=result
-  )
+    return render_template_string(HTML_TEMPLATE, balance=session.get('balance', 10.0))
 
-
-@app.route("/create-checkout-session")
-def create_checkout_session():
-  try:
-    checkout_session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{
-            "price_data": {
-                "currency": "usd",
-                "unit_amount": 500,
-                "product_data": {"name": "شحن رصيد منصة AutoPipeline (5$)"},
-            },
-            "quantity": 1,
-        }],
-        mode="payment",
-        success_url=request.host_url + "payment-success",
-        cancel_url=request.host_url + "payment-cancel",
-    )
-    return redirect(checkout_session.url, code=303)
-  except Exception:
-    session["balance"] = session.get("balance", 0.50) + 5.00
-    session["result"] = (
-        "✅ تم شحن الرصيد تجريبياً بـ $5.00 بنجاح (وضع الاختبار المحاكي)!"
-    )
-    return redirect("/")
-
-
-@app.route("/payment-success")
-def payment_success():
-  session["balance"] = session.get("balance", 0.50) + 5.00
-  session["result"] = (
-      "✅ تمت عملية الدفع بنجاح عبر بوابة الدفع وتم شحن رصيدك بـ $5.00!"
-  )
-  return redirect("/")
-
-
-@app.route("/payment-cancel")
-def payment_cancel():
-  session["result"] = "❌ تم إلغاء عملية الدفع."
-  return redirect("/")
-
-
-@app.route("/generate", methods=["POST"])
+@app.route('/generate', methods=['POST'])
 def generate():
-  if session.get("balance", 0) < 0.10:
-    session["result"] = "⚠️ رصيد غير كافٍ! يرجى شحن محفظتك للمتابعة."
-    return redirect("/")
-  session["balance"] -= 0.10
-  desc = request.form.get("project_desc", "Project")
-  simulated_dockerfile = f"""FROM python:3.10
-# Project: {desc}
-# Status: Pipeline Generated & Ready for GitHub Actions 🚀
-# Cost Deducted: $0.10
-"""
-  session["result"] = simulated_dockerfile
-  return redirect("/")
+    if session.get('balance', 0) < 1:
+        return jsonify({'error': 'رصيد المحفظة غير كافٍ!'}), 400
 
+    data = request.get_json() or {}
+    repo_desc = data.get('repo_desc', 'football-pipeline-project')
+    
+    # تنظيف اسم المستودع ليكون صالحاً لـ GitHub
+    repo_name = "".join(c if c.isalnum() or c in ('-', '_') else '-' for c in repo_desc.lower())[:30].strip('-')
+    if not repo_name:
+        repo_name = "football-pipeline-auto"
 
-if __name__ == "__main__":
-  app.run(host="0.0.0.0", port=5000)
+    github_token = os.environ.get('GITHUB_TOKEN')
+    if not github_token:
+        return jsonify({'error': 'متغير البيئة GITHUB_TOKEN غير مُعَرّف على Render!'}), 500
+
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json"
+    }
+    payload = {
+        "name": repo_name,
+        "description": repo_desc,
+        "private": False,
+        "auto_init": True
+    }
+
+    response = requests.post("https://api.github.com/user/repos", json=payload, headers=headers)
+    
+    if response.status_code == 201:
+        repo_data = response.json()
+        session['balance'] = session.get('balance', 10.0) - 1.0
+        return jsonify({
+            'success': True,
+            'repo_url': repo_data.get('html_url')
+        })
+    else:
+        try:
+            err_json = response.json()
+            err_msg = err_json.get('message', 'Unknown error')
+        except:
+            err_msg = response.text
+        return jsonify({'error': f'فشل إنشاء المستودع في GitHub: {err_msg}'}), 400
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
