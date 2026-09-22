@@ -3,9 +3,10 @@ import sys
 import requests
 from datetime import datetime, timezone
 
-
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+SPORTSDB_URL = "https://www.thesportsdb.com/api/v1/json/3"
 
 
 def fail(message):
@@ -28,214 +29,217 @@ HEADERS = {
 }
 
 
-def supabase_upsert(table, rows):
-    if not rows:
-        print(f"{table}: nothing to sync")
+def get_json(url):
+    response = requests.get(
+        url,
+        headers={
+            "User-Agent": "football-pipeline/1.0",
+            "Accept": "application/json",
+        },
+        timeout=30,
+    )
+
+    if not response.ok:
+        fail(
+            f"TheSportsDB HTTP {response.status_code}: "
+            f"{response.text[:500]}"
+        )
+
+    return response.json()
+
+
+def get_germany_team():
+    data = get_json(
+        f"{SPORTSDB_URL}/searchteams.php?t=Germany"
+    )
+
+    teams = data.get("teams") or []
+
+    for team in teams:
+        if (
+            (team.get("strTeam") or "").lower() == "germany"
+            and (team.get("strSport") or "").lower() == "soccer"
+        ):
+            return team
+
+    if teams:
+        return teams[0]
+
+    fail("Germany team was not found")
+
+
+def fetch_matches():
+    team = get_germany_team()
+
+    team_id = team.get("idTeam")
+
+    if not team_id:
+        fail("Germany team ID is missing")
+
+    data = get_json(
+        f"{SPORTSDB_URL}/eventsnext.php?id={team_id}"
+    )
+
+    return data.get("events") or []
+
+
+def parse_kickoff(event):
+    date_value = event.get("dateEvent")
+    time_value = event.get("strTime") or "00:00:00"
+
+    if not date_value:
+        return None
+
+    try:
+        return datetime.fromisoformat(
+            f"{date_value}T{time_value}"
+        ).replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def normalize_status(event):
+    status = (
+        event.get("strStatus")
+        or event.get("status")
+        or ""
+    ).upper()
+
+    if status in ("FT", "FINISHED"):
+        return "finished"
+
+    if status in ("LIVE", "IN PLAY", "IN_PLAY"):
+        return "live"
+
+    if status in ("POSTPONED",):
+        return "postponed"
+
+    if status in ("CANCELLED", "CANCELED"):
+        return "cancelled"
+
+    return "scheduled"
+
+
+def normalize_match(event):
+    event_id = event.get("idEvent")
+
+    kickoff = parse_kickoff(event)
+
+    if not event_id or not kickoff:
+        return None
+
+    return {
+        "external_id": str(event_id),
+
+        "home_team": (
+            event.get("strHomeTeam")
+            or "Unknown"
+        ),
+
+        "away_team": (
+            event.get("strAwayTeam")
+            or "Unknown"
+        ),
+
+        "home_team_id": (
+            str(event["idHomeTeam"])
+            if event.get("idHomeTeam")
+            else None
+        ),
+
+        "away_team_id": (
+            str(event["idAwayTeam"])
+            if event.get("idAwayTeam")
+            else None
+        ),
+
+        "competition": (
+            event.get("strLeague")
+            or "Unknown"
+        ),
+
+        "kickoff_at": kickoff.isoformat(),
+
+        "venue": event.get("strVenue"),
+
+        "status": normalize_status(event),
+
+        "home_score": (
+            int(event["intHomeScore"])
+            if str(event.get("intHomeScore") or "").isdigit()
+            else None
+        ),
+
+        "away_score": (
+            int(event["intAwayScore"])
+            if str(event.get("intAwayScore") or "").isdigit()
+            else None
+        ),
+
+        "prediction_locked": kickoff <= datetime.now(timezone.utc),
+
+        "source": "TheSportsDB",
+
+        "updated_at": datetime.now(
+            timezone.utc
+        ).isoformat(),
+    }
+
+
+def sync_matches(matches):
+    if not matches:
+        print("No matches found.")
         return
 
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    url = f"{SUPABASE_URL}/rest/v1/matches"
 
     response = requests.post(
         url,
         headers=HEADERS,
         params={"on_conflict": "external_id"},
-        json=rows,
+        json=matches,
         timeout=30,
     )
 
     if not response.ok:
         print(response.text)
-        fail(f"Supabase returned HTTP {response.status_code}")
+        fail(
+            f"Supabase HTTP {response.status_code}"
+        )
 
-    print(f"{table}: synced {len(rows)} rows")
-
-
-def normalize_match(match):
-    """
-    Convert a football match object into our Supabase matches schema.
-
-    This accepts common field names so the script is easier to connect
-    to different football APIs later.
-    """
-
-    external_id = (
-        match.get("external_id")
-        or match.get("id")
-        or match.get("match_id")
-        or match.get("event_id")
+    print(
+        f"SUCCESS: {len(matches)} matches synced to Supabase"
     )
-
-    home_team = (
-        match.get("home_team")
-        or match.get("homeTeam")
-        or match.get("home")
-        or "Unknown"
-    )
-
-    away_team = (
-        match.get("away_team")
-        or match.get("awayTeam")
-        or match.get("away")
-        or "Unknown"
-    )
-
-    kickoff = (
-        match.get("kickoff_at")
-        or match.get("kickoff")
-        or match.get("date")
-        or match.get("datetime")
-    )
-
-    if not external_id:
-        return None
-
-    if not kickoff:
-        return None
-
-    status = match.get("status", "scheduled")
-
-    status_map = {
-        "NS": "scheduled",
-        "TBD": "scheduled",
-        "SCHEDULED": "scheduled",
-        "LIVE": "live",
-        "IN_PLAY": "live",
-        "FT": "finished",
-        "FINISHED": "finished",
-        "POSTPONED": "postponed",
-        "CANCELLED": "cancelled",
-    }
-
-    status = status_map.get(str(status).upper(), status)
-
-    if status not in {
-        "scheduled",
-        "live",
-        "finished",
-        "postponed",
-        "cancelled",
-    }:
-        status = "scheduled"
-
-    home_score = (
-        match.get("home_score")
-        or match.get("homeScore")
-    )
-
-    away_score = (
-        match.get("away_score")
-        or match.get("awayScore")
-    )
-
-    return {
-        "external_id": str(external_id),
-
-        "home_team": str(home_team),
-        "away_team": str(away_team),
-
-        "home_team_id": (
-            str(match["home_team_id"])
-            if match.get("home_team_id") is not None
-            else None
-        ),
-
-        "away_team_id": (
-            str(match["away_team_id"])
-            if match.get("away_team_id") is not None
-            else None
-        ),
-
-        "competition": (
-            match.get("competition")
-            or match.get("league")
-        ),
-
-        "kickoff_at": kickoff,
-
-        "venue": match.get("venue"),
-
-        "status": status,
-
-        "home_score": home_score,
-        "away_score": away_score,
-
-        "prediction_locked": status in {
-            "live",
-            "finished",
-            "cancelled",
-        },
-
-        "source": match.get("source", "football-pipeline"),
-
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-def load_matches():
-    """
-    Try to load matches from files generated by the existing pipeline.
-
-    We intentionally support several possible JSON locations.
-    """
-
-    import json
-    from pathlib import Path
-
-    possible_files = [
-        Path("matches.json"),
-        Path("data/matches.json"),
-        Path("docs/matches.json"),
-        Path("matches/matches.json"),
-    ]
-
-    for path in possible_files:
-        if path.exists():
-            print(f"Loading matches from {path}")
-
-            with path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-
-            if isinstance(data, dict):
-                data = (
-                    data.get("matches")
-                    or data.get("events")
-                    or data.get("data")
-                    or []
-                )
-
-            if not isinstance(data, list):
-                fail(f"{path} does not contain a match list")
-
-            return data
-
-    print("No matches JSON file found.")
-    return []
 
 
 def main():
 
-    print("====================================")
-    print("FOOTBALL PIPELINE → SUPABASE")
-    print("====================================")
+    print("===================================")
+    print("FOOTBALL PIPELINE")
+    print("TheSportsDB -> Supabase")
+    print("===================================")
 
-    matches = load_matches()
+    events = fetch_matches()
 
-    normalized = []
-
-    for match in matches:
-        item = normalize_match(match)
-
-        if item:
-            normalized.append(item)
-
-    print(f"Found {len(normalized)} valid matches")
-
-    supabase_upsert(
-        "matches",
-        normalized
+    print(
+        f"TheSportsDB returned {len(events)} events"
     )
 
-    print("Supabase synchronization completed.")
+    matches = []
+
+    for event in events:
+        match = normalize_match(event)
+
+        if match:
+            matches.append(match)
+
+    print(
+        f"Prepared {len(matches)} matches"
+    )
+
+    sync_matches(matches)
+
+    print("DONE")
 
 
 if __name__ == "__main__":
