@@ -4,66 +4,75 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from html import escape
+import re
 
 API_BASE = "https://www.thesportsdb.com/api/v1/json/3"
 OUT = Path("docs")
+MATCHES_DIR = OUT / "matches"
+MAX_MATCHES = 20
 
 
 def get_json(url):
-    req = urllib.request.Request(
+    request = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "football-pipeline/1.0",
+            "User-Agent": "football-match-hub/2.0",
             "Accept": "application/json",
         },
     )
 
-    with urllib.request.urlopen(req, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def fetch_matches():
-    query = urllib.parse.urlencode({"t": "Germany"})
-    search_url = f"{API_BASE}/searchteams.php?{query}"
+def get_germany_team():
+    url = (
+        f"{API_BASE}/searchteams.php?"
+        f"{urllib.parse.urlencode({'t': 'Germany'})}"
+    )
 
-    data = get_json(search_url)
+    data = get_json(url)
     teams = data.get("teams") or []
 
-    team = None
-
-    for item in teams:
+    for team in teams:
         if (
-            (item.get("strTeam") or "").lower() == "germany"
-            and (item.get("strSport") or "").lower() == "soccer"
+            (team.get("strTeam") or "").lower() == "germany"
+            and (team.get("strSport") or "").lower() == "soccer"
         ):
-            team = item
-            break
+            return team
 
-    if not team and teams:
-        team = teams[0]
+    if teams:
+        return teams[0]
 
-    if not team:
-        raise RuntimeError("Germany national team not found")
+    raise RuntimeError("Germany national team not found")
 
-    team_id = team["idTeam"]
 
-    matches_url = f"{API_BASE}/eventsnext.php?id={team_id}"
-    matches_data = get_json(matches_url)
+def fetch_matches():
+    team = get_germany_team()
+    team_id = team.get("idTeam")
 
-    return matches_data.get("events") or []
+    if not team_id:
+        raise RuntimeError("Germany team ID missing")
+
+    url = f"{API_BASE}/eventsnext.php?id={team_id}"
+
+    data = get_json(url)
+
+    return data.get("events") or []
 
 
 def parse_datetime(event):
-    date = event.get("dateEvent")
-    time = event.get("strTime") or "00:00:00"
+    date_value = event.get("dateEvent")
+    time_value = event.get("strTime") or "00:00:00"
 
-    if not date:
+    if not date_value:
         return None
 
     try:
         return datetime.fromisoformat(
-            f"{date}T{time}"
+            f"{date_value}T{time_value}"
         ).replace(tzinfo=timezone.utc)
+
     except Exception:
         return None
 
@@ -78,43 +87,73 @@ def format_date(dt):
 
 
 def slugify(text, event_id):
-    slug = (
-        text.lower()
-        .replace(" ", "-")
-        .replace("–", "-")
-        .replace("/", "-")
-        .replace("&", "and")
+    text = text.lower()
+
+    text = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        text
+    ).strip("-")
+
+    return f"{text}-{event_id}"
+
+
+def clean_text(value, fallback):
+    value = value or ""
+
+    value = str(value).strip()
+
+    return escape(value if value else fallback)
+
+
+def match_title(event):
+    home = event.get("strHomeTeam") or "Deutschland"
+    away = event.get("strAwayTeam") or "Gegner"
+
+    return f"{home} – {away}"
+
+
+def create_match_page(event):
+    title = match_title(event)
+
+    event_id = event.get("idEvent") or "unknown"
+
+    slug = slugify(
+        title,
+        event_id
     )
 
-    return f"{slug}-{event_id}"
+    dt = parse_datetime(event)
 
-
-def create_page(match):
-    home = match.get("strHomeTeam") or "Deutschland"
-    away = match.get("strAwayTeam") or "Gegner"
-
-    title = f"{home} – {away}"
-
-    event_id = match.get("idEvent") or ""
-
-    slug = slugify(title, event_id)
-
-    dt = parse_datetime(match)
-
-    venue = match.get("strVenue") or "Spielort folgt"
-
-    league = (
-        match.get("strLeague")
-        or "Nationalmannschaft"
+    league = clean_text(
+        event.get("strLeague"),
+        "Nationalmannschaft"
     )
 
-    detail_dir = OUT / "matches"
-    detail_dir.mkdir(
-        parents=True,
-        exist_ok=True
+    venue = clean_text(
+        event.get("strVenue"),
+        "Spielort folgt"
     )
+
+    country = clean_text(
+        event.get("strCountry"),
+        "Deutschland"
+    )
+
+    home = clean_text(
+        event.get("strHomeTeam"),
+        "Deutschland"
+    )
+
+    away = clean_text(
+        event.get("strAwayTeam"),
+        "Gegner"
+    )
+
+    date_display = format_date(dt)
 
     html = f"""<!doctype html>
+
 <html lang="de">
 
 <head>
@@ -124,34 +163,124 @@ def create_page(match):
 <meta name="viewport"
 content="width=device-width,initial-scale=1">
 
-<title>{escape(title)} | Deutschland Match-Hub</title>
+<title>
+{escape(title)} | Deutschland Match-Hub
+</title>
 
 <meta name="description"
-content="{escape(title)} – Termin, Spielort und Match-Informationen.">
+content="{escape(title)} – Spielzeit, Wettbewerb, Spielort und Match-Hub.">
 
 <style>
 
+* {{
+    box-sizing: border-box;
+}}
+
 body {{
-    font-family: Arial, sans-serif;
-    background: #f4f4f4;
     margin: 0;
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+    background: #f2f4f7;
+    color: #111827;
+}}
+
+header {{
+    background: #111827;
+    color: white;
+    padding: 18px;
+}}
+
+header a {{
+    color: white;
+    text-decoration: none;
 }}
 
 main {{
-    max-width: 800px;
+    width: min(900px, 100%);
     margin: auto;
-    padding: 20px;
+    padding: 16px;
+}}
+
+.hero {{
+    background: white;
+    border-radius: 20px;
+    padding: 24px;
+    margin-top: 15px;
+    box-shadow:
+        0 4px 20px
+        rgba(0,0,0,.06);
+}}
+
+.teams {{
+    display: grid;
+    grid-template-columns:
+        1fr auto 1fr;
+    gap: 15px;
+    align-items: center;
+    text-align: center;
+}}
+
+.team {{
+    font-size: 24px;
+    font-weight: 700;
+}}
+
+.vs {{
+    font-weight: 700;
+    color: #6b7280;
+}}
+
+.meta {{
+    display: grid;
+    grid-template-columns:
+        repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 22px;
+}}
+
+.meta div {{
+    background: #f8fafc;
+    border-radius: 14px;
+    padding: 15px;
+}}
+
+.label {{
+    color: #6b7280;
+    font-size: 13px;
+}}
+
+.value {{
+    font-weight: 700;
+    margin-top: 5px;
 }}
 
 .card {{
     background: white;
-    padding: 24px;
     border-radius: 18px;
-    margin: 15px 0;
+    padding: 20px;
+    margin-top: 16px;
 }}
 
-a {{
-    color: #155eef;
+.muted {{
+    color: #6b7280;
+}}
+
+@media(max-width:650px) {{
+
+    .teams {{
+        grid-template-columns: 1fr;
+    }}
+
+    .vs {{
+        display: none;
+    }}
+
+    .meta {{
+        grid-template-columns: 1fr;
+    }}
+
 }}
 
 </style>
@@ -160,38 +289,116 @@ a {{
 
 <body>
 
+<header>
+
+<a href="../">
+← Deutschland Match-Hub
+</a>
+
+</header>
+
 <main>
 
-<p>
-<a href="../">← Alle Deutschland-Spiele</a>
-</p>
+<section class="hero">
 
-<div class="card">
+<div class="teams">
 
-<h1>{escape(title)}</h1>
+<div class="team">
+{home}
+</div>
 
-<h2>{format_date(dt)}</h2>
+<div class="vs">
+VS
+</div>
 
-<p>
-🏆 {escape(league)}
-</p>
-
-<p>
-📍 {escape(venue)}
-</p>
+<div class="team">
+{away}
+</div>
 
 </div>
 
-<div class="card">
+<div class="meta">
 
-<h2>⚽ Match-Hub</h2>
+<div>
 
-<p>
-Alle wichtigen Informationen zu diesem Spiel
-werden automatisch auf dieser Seite aktualisiert.
-</p>
+<div class="label">
+Datum & Uhrzeit
+</div>
+
+<div class="value">
+{date_display}
+</div>
 
 </div>
+
+<div>
+
+<div class="label">
+Wettbewerb
+</div>
+
+<div class="value">
+{league}
+</div>
+
+</div>
+
+<div>
+
+<div class="label">
+Spielort
+</div>
+
+<div class="value">
+{venue}
+</div>
+
+</div>
+
+</div>
+
+</section>
+
+
+<section class="card">
+
+<h2>
+⚽ Match-Hub
+</h2>
+
+<p class="muted">
+
+Diese Match-Seite wird automatisch
+aktualisiert, sobald neue Daten verfügbar sind.
+
+</p>
+
+<p>
+🌍 {country}
+</p>
+
+<p>
+🆔 Match ID: {escape(str(event_id))}
+</p>
+
+</section>
+
+
+<section class="card">
+
+<h2>
+📊 البيانات القادمة
+</h2>
+
+<p class="muted">
+
+ستتم إضافة الإحصائيات والأخبار
+والتفاصيل الإضافية عندما تتوفر مصادر
+بيانات موثوقة لها.
+
+</p>
+
+</section>
 
 </main>
 
@@ -200,19 +407,250 @@ werden automatisch auf dieser Seite aktualisiert.
 </html>
 """
 
-    file = detail_dir / f"{slug}.html"
+    MATCHES_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
-    file.write_text(
+    path = MATCHES_DIR / f"{slug}.html"
+
+    path.write_text(
         html,
         encoding="utf-8"
     )
 
-    return slug, title, dt, venue, league
+    return slug, title, dt
+
+
+def build_home(matches):
+    cards = []
+
+    for event in matches:
+
+        slug, title, dt = create_match_page(
+            event
+        )
+
+        league = clean_text(
+            event.get("strLeague"),
+            "Nationalmannschaft"
+        )
+
+        venue = clean_text(
+            event.get("strVenue"),
+            "Spielort folgt"
+        )
+
+        cards.append(
+            f"""
+<div class="card">
+
+<h2>
+{escape(title)}
+</h2>
+
+<div class="date">
+{format_date(dt)}
+</div>
+
+<p>
+🏆 {league}
+</p>
+
+<p>
+📍 {venue}
+</p>
+
+<a class="button"
+href="matches/{slug}.html">
+
+Match-Hub öffnen →
+
+</a>
+
+</div>
+"""
+        )
+
+    if not cards:
+
+        cards.append(
+            """
+<div class="card">
+
+<h2>
+Keine kommenden Spiele
+</h2>
+
+<p>
+Aktuell wurden keine kommenden
+Deutschland-Spiele gefunden.
+</p>
+
+</div>
+"""
+        )
+
+    updated = datetime.now().astimezone()
+
+    updated_text = updated.strftime(
+        "%d.%m.%Y %H:%M"
+    )
+
+    return f"""<!doctype html>
+
+<html lang="de">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta name="viewport"
+content="width=device-width,initial-scale=1">
+
+<title>
+Deutschland Spiele | Match-Hub
+</title>
+
+<meta name="description"
+content="Automatisch aktualisierte kommende Spiele der deutschen Nationalmannschaft.">
+
+<style>
+
+* {{
+    box-sizing: border-box;
+}}
+
+body {{
+    margin: 0;
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+    background: #f2f4f7;
+    color: #111827;
+}}
+
+header {{
+    background: #111827;
+    color: white;
+    padding: 28px 18px;
+}}
+
+main {{
+    width: min(900px, 100%);
+    margin: auto;
+    padding: 16px;
+}}
+
+.hero {{
+    background: white;
+    border-radius: 20px;
+    padding: 24px;
+    margin-top: -10px;
+    box-shadow:
+        0 4px 20px
+        rgba(0,0,0,.06);
+}}
+
+.card {{
+    background: white;
+    border-radius: 18px;
+    padding: 20px;
+    margin-top: 16px;
+}}
+
+.date {{
+    font-size: 18px;
+    font-weight: 700;
+}}
+
+.muted {{
+    color: #6b7280;
+}}
+
+.button {{
+    display: inline-block;
+    margin-top: 10px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: #111827;
+    color: white;
+    text-decoration: none;
+    font-weight: 700;
+}}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+<h1>
+🇩🇪 Deutschland Match-Hub
+</h1>
+
+<p>
+Automatisch aktualisierte Spiele
+</p>
+
+</header>
+
+<main>
+
+<section class="hero">
+
+<h2>
+🔜 Nächste Deutschland-Spiele
+</h2>
+
+<p class="muted">
+
+Letzte Aktualisierung:
+{updated_text}
+
+</p>
+
+</section>
+
+{''.join(cards)}
+
+</main>
+
+</body>
+
+</html>
+"""
+
+
+def cleanup_old_pages(valid_slugs):
+
+    if not MATCHES_DIR.exists():
+        return
+
+    for file in MATCHES_DIR.glob("*.html"):
+
+        if file.stem not in valid_slugs:
+
+            try:
+                file.unlink()
+
+            except Exception:
+                pass
 
 
 def main():
 
+    print("Starting football match engine...")
+
     OUT.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    MATCHES_DIR.mkdir(
         parents=True,
         exist_ok=True
     )
@@ -236,137 +674,46 @@ def main():
         matches.append(event)
 
     matches.sort(
-        key=lambda x: parse_datetime(x)
+        key=lambda event:
+        parse_datetime(event)
     )
 
-    cards = []
+    matches = matches[:MAX_MATCHES]
 
-    for event in matches[:20]:
+    valid_slugs = set()
 
-        slug, title, dt, venue, league = create_page(
+    for event in matches:
+
+        slug, _, _ = create_match_page(
             event
         )
 
-        cards.append(
-            f"""
-<div class="card">
+        valid_slugs.add(slug)
 
-<h2>{escape(title)}</h2>
+    cleanup_old_pages(
+        valid_slugs
+    )
 
-<p>
-<b>{format_date(dt)}</b>
-</p>
+    home = build_home(
+        matches
+    )
 
-<p>
-🏆 {escape(league)}
-</p>
+    index_path = OUT / "index.html"
 
-<p>
-📍 {escape(venue)}
-</p>
-
-<a href="matches/{slug}.html">
-Match-Hub öffnen →
-</a>
-
-</div>
-"""
-        )
-
-    if not cards:
-
-        cards.append(
-            """
-<div class="card">
-Keine kommenden Spiele gefunden.
-</div>
-"""
-        )
-
-    html = f"""<!doctype html>
-
-<html lang="de">
-
-<head>
-
-<meta charset="utf-8">
-
-<meta name="viewport"
-content="width=device-width,initial-scale=1">
-
-<title>Deutschland Spiele | Match-Hub</title>
-
-<meta name="description"
-content="Automatisch aktualisierte Spiele der deutschen Nationalmannschaft.">
-
-<style>
-
-body {{
-    font-family: Arial, sans-serif;
-    background: #f4f4f4;
-    margin: 0;
-}}
-
-main {{
-    max-width: 800px;
-    margin: auto;
-    padding: 20px;
-}}
-
-.card {{
-    background: white;
-    padding: 24px;
-    border-radius: 18px;
-    margin: 15px 0;
-}}
-
-.muted {{
-    color: #666;
-}}
-
-</style>
-
-</head>
-
-<body>
-
-<main>
-
-<div class="card">
-
-<h1>🇩🇪 Deutschland – Spiele</h1>
-
-<p class="muted">
-Diese Seite wird automatisch aktualisiert.
-</p>
-
-<p>
-Letzte Aktualisierung:
-{datetime.now().astimezone().strftime("%d.%m.%Y %H:%M")}
-</p>
-
-</div>
-
-<h2>🔜 Nächste Spiele</h2>
-
-{''.join(cards)}
-
-</main>
-
-</body>
-
-</html>
-"""
-
-    (OUT / "index.html").write_text(
-        html,
+    index_path.write_text(
+        home,
         encoding="utf-8"
     )
 
     print(
-        f"Created {len(matches)} upcoming matches."
+        f"Generated {len(matches)} upcoming matches."
+    )
+
+    print(
+        "Football match engine completed successfully."
     )
 
 
 if __name__ == "__main__":
+
     main()
