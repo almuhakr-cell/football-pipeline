@@ -21,9 +21,12 @@ if not SUPABASE_KEY:
     fail("SUPABASE_SERVICE_ROLE_KEY is missing")
 
 
+# Supabase NEW secret keys (sb_secret_...)
+# must be sent through the apikey header.
+# Do NOT send them as Authorization: Bearer because
+# they are not JWT tokens.
 HEADERS = {
     "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
     "Prefer": "resolution=merge-duplicates",
 }
@@ -111,7 +114,7 @@ def normalize_status(event):
     if status in ("LIVE", "IN PLAY", "IN_PLAY"):
         return "live"
 
-    if status in ("POSTPONED",):
+    if status == "POSTPONED":
         return "postponed"
 
     if status in ("CANCELLED", "CANCELED"):
@@ -176,7 +179,9 @@ def normalize_match(event):
             else None
         ),
 
-        "prediction_locked": kickoff <= datetime.now(timezone.utc),
+        "prediction_locked": (
+            kickoff <= datetime.now(timezone.utc)
+        ),
 
         "source": "TheSportsDB",
 
@@ -196,13 +201,16 @@ def sync_matches(matches):
     response = requests.post(
         url,
         headers=HEADERS,
-        params={"on_conflict": "external_id"},
+        params={
+            "on_conflict": "external_id"
+        },
         json=matches,
         timeout=30,
     )
 
     if not response.ok:
         print(response.text)
+
         fail(
             f"Supabase HTTP {response.status_code}"
         )
