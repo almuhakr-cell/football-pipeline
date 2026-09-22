@@ -13,15 +13,15 @@ MAX_MATCHES = 20
 
 
 def get_json(url):
-    request = urllib.request.Request(
+    req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "football-match-hub/2.0",
+            "User-Agent": "football-match-hub/3.0",
             "Accept": "application/json",
         },
     )
 
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(req, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -32,6 +32,7 @@ def get_germany_team():
     )
 
     data = get_json(url)
+
     teams = data.get("teams") or []
 
     for team in teams:
@@ -49,14 +50,15 @@ def get_germany_team():
 
 def fetch_matches():
     team = get_germany_team()
+
     team_id = team.get("idTeam")
 
     if not team_id:
         raise RuntimeError("Germany team ID missing")
 
-    url = f"{API_BASE}/eventsnext.php?id={team_id}"
-
-    data = get_json(url)
+    data = get_json(
+        f"{API_BASE}/eventsnext.php?id={team_id}"
+    )
 
     return data.get("events") or []
 
@@ -72,7 +74,6 @@ def parse_datetime(event):
         return datetime.fromisoformat(
             f"{date_value}T{time_value}"
         ).replace(tzinfo=timezone.utc)
-
     except Exception:
         return None
 
@@ -87,34 +88,23 @@ def format_date(dt):
 
 
 def slugify(text, event_id):
-    text = text.lower()
+    value = text.lower()
 
-    text = re.sub(
+    value = re.sub(
         r"[^a-z0-9]+",
         "-",
-        text
+        value
     ).strip("-")
 
-    return f"{text}-{event_id}"
-
-
-def clean_text(value, fallback):
-    value = value or ""
-
-    value = str(value).strip()
-
-    return escape(value if value else fallback)
-
-
-def match_title(event):
-    home = event.get("strHomeTeam") or "Deutschland"
-    away = event.get("strAwayTeam") or "Gegner"
-
-    return f"{home} – {away}"
+    return f"{value}-{event_id}"
 
 
 def create_match_page(event):
-    title = match_title(event)
+
+    home = event.get("strHomeTeam") or "Deutschland"
+    away = event.get("strAwayTeam") or "Gegner"
+
+    title = f"{home} – {away}"
 
     event_id = event.get("idEvent") or "unknown"
 
@@ -125,34 +115,27 @@ def create_match_page(event):
 
     dt = parse_datetime(event)
 
-    league = clean_text(
-        event.get("strLeague"),
-        "Nationalmannschaft"
+    league = escape(
+        event.get("strLeague")
+        or "Nationalmannschaft"
     )
 
-    venue = clean_text(
-        event.get("strVenue"),
-        "Spielort folgt"
+    venue = escape(
+        event.get("strVenue")
+        or "Spielort folgt"
     )
 
-    country = clean_text(
-        event.get("strCountry"),
-        "Deutschland"
-    )
+    home_safe = escape(home)
+    away_safe = escape(away)
 
-    home = clean_text(
-        event.get("strHomeTeam"),
-        "Deutschland"
-    )
+    date_text = format_date(dt)
 
-    away = clean_text(
-        event.get("strAwayTeam"),
-        "Gegner"
-    )
+    timestamp = int(
+        dt.timestamp()
+    ) * 1000 if dt else 0
 
-    date_display = format_date(dt)
-
-    html = f"""<!doctype html>
+    html = f"""
+<!doctype html>
 
 <html lang="de">
 
@@ -164,11 +147,11 @@ def create_match_page(event):
 content="width=device-width,initial-scale=1">
 
 <title>
-{escape(title)} | Deutschland Match-Hub
+{escape(title)} | Match-Hub
 </title>
 
 <meta name="description"
-content="{escape(title)} – Spielzeit, Wettbewerb, Spielort und Match-Hub.">
+content="{escape(title)} – Match-Hub mit Countdown und Fan-Challenge.">
 
 <style>
 
@@ -178,11 +161,8 @@ content="{escape(title)} – Spielzeit, Wettbewerb, Spielort und Match-Hub.">
 
 body {{
     margin: 0;
-    font-family:
-        Arial,
-        Helvetica,
-        sans-serif;
-    background: #f2f4f7;
+    font-family: Arial, sans-serif;
+    background: #f3f4f6;
     color: #111827;
 }}
 
@@ -198,52 +178,54 @@ header a {{
 }}
 
 main {{
-    width: min(900px, 100%);
+    max-width: 900px;
     margin: auto;
     padding: 16px;
 }}
 
-.hero {{
+.card {{
     background: white;
     border-radius: 20px;
-    padding: 24px;
-    margin-top: 15px;
-    box-shadow:
-        0 4px 20px
-        rgba(0,0,0,.06);
+    padding: 22px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.06);
 }}
 
 .teams {{
     display: grid;
-    grid-template-columns:
-        1fr auto 1fr;
-    gap: 15px;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     text-align: center;
+    gap: 15px;
 }}
 
 .team {{
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 25px;
+    font-weight: 800;
 }}
 
 .vs {{
-    font-weight: 700;
     color: #6b7280;
+    font-weight: 800;
+}}
+
+.countdown {{
+    text-align: center;
+    font-size: 30px;
+    font-weight: 800;
+    margin: 22px 0;
 }}
 
 .meta {{
     display: grid;
-    grid-template-columns:
-        repeat(3, 1fr);
-    gap: 12px;
-    margin-top: 22px;
+    grid-template-columns: repeat(3,1fr);
+    gap: 10px;
 }}
 
 .meta div {{
     background: #f8fafc;
+    padding: 14px;
     border-radius: 14px;
-    padding: 15px;
 }}
 
 .label {{
@@ -256,11 +238,43 @@ main {{
     margin-top: 5px;
 }}
 
-.card {{
+.predictions {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}}
+
+.prediction {{
+    padding: 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 16px;
     background: white;
-    border-radius: 18px;
-    padding: 20px;
-    margin-top: 16px;
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+}}
+
+.prediction.selected {{
+    border-color: #111827;
+    background: #f3f4f6;
+}}
+
+.result {{
+    text-align: center;
+    margin-top: 14px;
+    font-weight: 700;
+}}
+
+.share {{
+    width: 100%;
+    padding: 14px;
+    border: 0;
+    border-radius: 14px;
+    background: #111827;
+    color: white;
+    font-weight: 700;
+    font-size: 16px;
+    cursor: pointer;
 }}
 
 .muted {{
@@ -292,19 +306,19 @@ main {{
 <header>
 
 <a href="../">
-← Deutschland Match-Hub
+← مركز مباريات ألمانيا
 </a>
 
 </header>
 
 <main>
 
-<section class="hero">
+<section class="card">
 
 <div class="teams">
 
 <div class="team">
-{home}
+{home_safe}
 </div>
 
 <div class="vs">
@@ -312,9 +326,16 @@ VS
 </div>
 
 <div class="team">
-{away}
+{away_safe}
 </div>
 
+</div>
+
+<div
+id="countdown"
+class="countdown"
+data-time="{timestamp}">
+جاري حساب الوقت...
 </div>
 
 <div class="meta">
@@ -322,11 +343,11 @@ VS
 <div>
 
 <div class="label">
-Datum & Uhrzeit
+التاريخ والوقت
 </div>
 
 <div class="value">
-{date_display}
+{date_text}
 </div>
 
 </div>
@@ -334,7 +355,7 @@ Datum & Uhrzeit
 <div>
 
 <div class="label">
-Wettbewerb
+المسابقة
 </div>
 
 <div class="value">
@@ -346,7 +367,7 @@ Wettbewerb
 <div>
 
 <div class="label">
-Spielort
+المكان
 </div>
 
 <div class="value">
@@ -363,23 +384,33 @@ Spielort
 <section class="card">
 
 <h2>
-⚽ Match-Hub
+🔥 تحدي المباراة
 </h2>
 
 <p class="muted">
-
-Diese Match-Seite wird automatisch
-aktualisiert, sobald neue Daten verfügbar sind.
-
+اختر توقعك. سيتم حفظ اختيارك على جهازك.
 </p>
 
-<p>
-🌍 {country}
-</p>
+<div class="predictions">
 
-<p>
-🆔 Match ID: {escape(str(event_id))}
-</p>
+<button
+class="prediction"
+data-choice="home">
+{home_safe}
+</button>
+
+<button
+class="prediction"
+data-choice="away">
+{away_safe}
+</button>
+
+</div>
+
+<div
+id="prediction-result"
+class="result">
+</div>
 
 </section>
 
@@ -387,20 +418,201 @@ aktualisiert, sobald neue Daten verfügbar sind.
 <section class="card">
 
 <h2>
-📊 البيانات القادمة
+📊 مركز المباراة
 </h2>
 
 <p class="muted">
-
-ستتم إضافة الإحصائيات والأخبار
-والتفاصيل الإضافية عندما تتوفر مصادر
-بيانات موثوقة لها.
-
+الإحصائيات والأخبار ستظهر هنا عندما تتوفر
+من مصادر بيانات موثوقة.
 </p>
 
 </section>
 
+
+<section class="card">
+
+<button
+class="share"
+onclick="shareMatch()">
+📤 مشاركة المباراة
+</button>
+
+</section>
+
 </main>
+
+
+<script>
+
+const countdown =
+document.getElementById("countdown");
+
+const target =
+Number(countdown.dataset.time);
+
+function updateCountdown() {{
+
+    if (!target) {{
+        countdown.textContent =
+            "موعد المباراة غير متوفر";
+        return;
+    }}
+
+    const now =
+        Date.now();
+
+    let diff =
+        target - now;
+
+    if (diff <= 0) {{
+        countdown.textContent =
+            "🔥 المباراة بدأت";
+        return;
+    }}
+
+    const days =
+        Math.floor(
+            diff / 86400000
+        );
+
+    diff %= 86400000;
+
+    const hours =
+        Math.floor(
+            diff / 3600000
+        );
+
+    diff %= 3600000;
+
+    const minutes =
+        Math.floor(
+            diff / 60000
+        );
+
+    const seconds =
+        Math.floor(
+            (diff % 60000) / 1000
+        );
+
+    countdown.textContent =
+        days + " يوم · " +
+        hours + " ساعة · " +
+        minutes + " دقيقة · " +
+        seconds + " ثانية";
+}}
+
+updateCountdown();
+
+setInterval(
+    updateCountdown,
+    1000
+);
+
+
+const buttons =
+    document.querySelectorAll(
+        ".prediction"
+    );
+
+const result =
+    document.getElementById(
+        "prediction-result"
+    );
+
+const storageKey =
+    "prediction-{event_id}";
+
+const saved =
+    localStorage.getItem(
+        storageKey
+    );
+
+if (saved) {{
+    selectPrediction(saved);
+}}
+
+buttons.forEach(button => {{
+
+    button.addEventListener(
+        "click",
+        () => {{
+
+            const choice =
+                button.dataset.choice;
+
+            localStorage.setItem(
+                storageKey,
+                choice
+            );
+
+            selectPrediction(
+                choice
+            );
+        }}
+    );
+
+}});
+
+
+function selectPrediction(choice) {{
+
+    buttons.forEach(button => {{
+
+        button.classList.toggle(
+            "selected",
+            button.dataset.choice === choice
+        );
+
+    }});
+
+    if (choice === "home") {{
+        result.textContent =
+            "تم حفظ توقعك: " +
+            "{home_safe}";
+    }} else {{
+        result.textContent =
+            "تم حفظ توقعك: " +
+            "{away_safe}";
+    }}
+}}
+
+
+async function shareMatch() {{
+
+    const shareData = {{
+        title:
+            "{escape(title)}",
+        text:
+            "🔥 تحدي مباراة {escape(title)}",
+        url:
+            window.location.href
+    }};
+
+    try {{
+
+        if (
+            navigator.share
+        ) {{
+
+            await navigator.share(
+                shareData
+            );
+
+        }} else {{
+
+            await navigator.clipboard.writeText(
+                window.location.href
+            );
+
+            alert(
+                "تم نسخ رابط المباراة"
+            );
+        }}
+
+    }} catch (error) {{}}
+}}
+
+</script>
 
 </body>
 
@@ -412,7 +624,10 @@ aktualisiert, sobald neue Daten verfügbar sind.
         exist_ok=True
     )
 
-    path = MATCHES_DIR / f"{slug}.html"
+    path = (
+        MATCHES_DIR /
+        f"{slug}.html"
+    )
 
     path.write_text(
         html,
@@ -422,228 +637,11 @@ aktualisiert, sobald neue Daten verfügbar sind.
     return slug, title, dt
 
 
-def build_home(matches):
-    cards = []
-
-    for event in matches:
-
-        slug, title, dt = create_match_page(
-            event
-        )
-
-        league = clean_text(
-            event.get("strLeague"),
-            "Nationalmannschaft"
-        )
-
-        venue = clean_text(
-            event.get("strVenue"),
-            "Spielort folgt"
-        )
-
-        cards.append(
-            f"""
-<div class="card">
-
-<h2>
-{escape(title)}
-</h2>
-
-<div class="date">
-{format_date(dt)}
-</div>
-
-<p>
-🏆 {league}
-</p>
-
-<p>
-📍 {venue}
-</p>
-
-<a class="button"
-href="matches/{slug}.html">
-
-Match-Hub öffnen →
-
-</a>
-
-</div>
-"""
-        )
-
-    if not cards:
-
-        cards.append(
-            """
-<div class="card">
-
-<h2>
-Keine kommenden Spiele
-</h2>
-
-<p>
-Aktuell wurden keine kommenden
-Deutschland-Spiele gefunden.
-</p>
-
-</div>
-"""
-        )
-
-    updated = datetime.now().astimezone()
-
-    updated_text = updated.strftime(
-        "%d.%m.%Y %H:%M"
-    )
-
-    return f"""<!doctype html>
-
-<html lang="de">
-
-<head>
-
-<meta charset="utf-8">
-
-<meta name="viewport"
-content="width=device-width,initial-scale=1">
-
-<title>
-Deutschland Spiele | Match-Hub
-</title>
-
-<meta name="description"
-content="Automatisch aktualisierte kommende Spiele der deutschen Nationalmannschaft.">
-
-<style>
-
-* {{
-    box-sizing: border-box;
-}}
-
-body {{
-    margin: 0;
-    font-family:
-        Arial,
-        Helvetica,
-        sans-serif;
-    background: #f2f4f7;
-    color: #111827;
-}}
-
-header {{
-    background: #111827;
-    color: white;
-    padding: 28px 18px;
-}}
-
-main {{
-    width: min(900px, 100%);
-    margin: auto;
-    padding: 16px;
-}}
-
-.hero {{
-    background: white;
-    border-radius: 20px;
-    padding: 24px;
-    margin-top: -10px;
-    box-shadow:
-        0 4px 20px
-        rgba(0,0,0,.06);
-}}
-
-.card {{
-    background: white;
-    border-radius: 18px;
-    padding: 20px;
-    margin-top: 16px;
-}}
-
-.date {{
-    font-size: 18px;
-    font-weight: 700;
-}}
-
-.muted {{
-    color: #6b7280;
-}}
-
-.button {{
-    display: inline-block;
-    margin-top: 10px;
-    padding: 12px 16px;
-    border-radius: 12px;
-    background: #111827;
-    color: white;
-    text-decoration: none;
-    font-weight: 700;
-}}
-
-</style>
-
-</head>
-
-<body>
-
-<header>
-
-<h1>
-🇩🇪 Deutschland Match-Hub
-</h1>
-
-<p>
-Automatisch aktualisierte Spiele
-</p>
-
-</header>
-
-<main>
-
-<section class="hero">
-
-<h2>
-🔜 Nächste Deutschland-Spiele
-</h2>
-
-<p class="muted">
-
-Letzte Aktualisierung:
-{updated_text}
-
-</p>
-
-</section>
-
-{''.join(cards)}
-
-</main>
-
-</body>
-
-</html>
-"""
-
-
-def cleanup_old_pages(valid_slugs):
-
-    if not MATCHES_DIR.exists():
-        return
-
-    for file in MATCHES_DIR.glob("*.html"):
-
-        if file.stem not in valid_slugs:
-
-            try:
-                file.unlink()
-
-            except Exception:
-                pass
-
-
 def main():
 
-    print("Starting football match engine...")
+    print(
+        "Starting Match-Hub engine..."
+    )
 
     OUT.mkdir(
         parents=True,
@@ -657,7 +655,9 @@ def main():
 
     events = fetch_matches()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(
+        timezone.utc
+    )
 
     matches = []
 
@@ -674,46 +674,180 @@ def main():
         matches.append(event)
 
     matches.sort(
-        key=lambda event:
-        parse_datetime(event)
+        key=parse_datetime
     )
 
     matches = matches[:MAX_MATCHES]
 
-    valid_slugs = set()
+    cards = []
 
     for event in matches:
 
-        slug, _, _ = create_match_page(
-            event
+        slug, title, dt = \
+            create_match_page(event)
+
+        venue = escape(
+            event.get("strVenue")
+            or "سيتم الإعلان لاحقًا"
         )
 
-        valid_slugs.add(slug)
+        league = escape(
+            event.get("strLeague")
+            or "Nationalmannschaft"
+        )
 
-    cleanup_old_pages(
-        valid_slugs
-    )
+        cards.append(
+            f"""
+<div class="card">
 
-    home = build_home(
-        matches
-    )
+<h2>
+{escape(title)}
+</h2>
 
-    index_path = OUT / "index.html"
+<p>
+<b>{format_date(dt)}</b>
+</p>
 
-    index_path.write_text(
-        home,
+<p>
+🏆 {league}
+</p>
+
+<p>
+📍 {venue}
+</p>
+
+<a href="matches/{slug}.html">
+🔥 افتح تحدي المباراة →
+</a>
+
+</div>
+"""
+        )
+
+    if not cards:
+
+        cards.append(
+            """
+<div class="card">
+لا توجد مباريات قادمة حاليًا.
+</div>
+"""
+        )
+
+    updated = datetime.now().astimezone()
+
+    index_html = f"""
+<!doctype html>
+
+<html lang="de">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta name="viewport"
+content="width=device-width,initial-scale=1">
+
+<title>
+🇩🇪 Deutschland Match-Hub
+</title>
+
+<style>
+
+body {{
+    margin: 0;
+    font-family: Arial,sans-serif;
+    background: #f3f4f6;
+    color: #111827;
+}}
+
+header {{
+    background: #111827;
+    color: white;
+    padding: 28px 18px;
+}}
+
+main {{
+    max-width: 900px;
+    margin: auto;
+    padding: 16px;
+}}
+
+.card {{
+    background: white;
+    padding: 20px;
+    margin: 16px 0;
+    border-radius: 18px;
+}}
+
+a {{
+    color: #111827;
+    font-weight: 800;
+}}
+
+.muted {{
+    color: #6b7280;
+}}
+
+</style>
+
+</head>
+
+<body>
+
+<header>
+
+<h1>
+🇩🇪 Deutschland Match-Hub
+</h1>
+
+<p>
+المباريات + التحديات
+</p>
+
+</header>
+
+<main>
+
+<div class="card">
+
+<h2>
+🔥 المباريات القادمة
+</h2>
+
+<p class="muted">
+
+آخر تحديث:
+{updated.strftime("%d.%m.%Y %H:%M")}
+
+</p>
+
+</div>
+
+{''.join(cards)}
+
+</main>
+
+</body>
+
+</html>
+"""
+
+    (
+        OUT / "index.html"
+    ).write_text(
+        index_html,
         encoding="utf-8"
     )
 
     print(
-        f"Generated {len(matches)} upcoming matches."
+        f"Generated {len(matches)} matches."
     )
 
     print(
-        "Football match engine completed successfully."
+        "Match-Hub engine completed."
     )
 
 
 if __name__ == "__main__":
-
     main()
