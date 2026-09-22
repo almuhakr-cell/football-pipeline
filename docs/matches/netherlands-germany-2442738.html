@@ -1,3 +1,4 @@
+
 <!doctype html>
 
 <html lang="de">
@@ -10,11 +11,11 @@
 content="width=device-width,initial-scale=1">
 
 <title>
-Netherlands – Germany | Deutschland Match-Hub
+Netherlands – Germany | Match-Hub
 </title>
 
 <meta name="description"
-content="Netherlands – Germany – Spielzeit, Wettbewerb, Spielort und Match-Hub.">
+content="Netherlands – Germany – Match-Hub mit Countdown und Fan-Challenge.">
 
 <style>
 
@@ -24,11 +25,8 @@ content="Netherlands – Germany – Spielzeit, Wettbewerb, Spielort und Match-H
 
 body {
     margin: 0;
-    font-family:
-        Arial,
-        Helvetica,
-        sans-serif;
-    background: #f2f4f7;
+    font-family: Arial, sans-serif;
+    background: #f3f4f6;
     color: #111827;
 }
 
@@ -44,52 +42,54 @@ header a {
 }
 
 main {
-    width: min(900px, 100%);
+    max-width: 900px;
     margin: auto;
     padding: 16px;
 }
 
-.hero {
+.card {
     background: white;
     border-radius: 20px;
-    padding: 24px;
-    margin-top: 15px;
-    box-shadow:
-        0 4px 20px
-        rgba(0,0,0,.06);
+    padding: 22px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 18px rgba(0,0,0,.06);
 }
 
 .teams {
     display: grid;
-    grid-template-columns:
-        1fr auto 1fr;
-    gap: 15px;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     text-align: center;
+    gap: 15px;
 }
 
 .team {
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 25px;
+    font-weight: 800;
 }
 
 .vs {
-    font-weight: 700;
     color: #6b7280;
+    font-weight: 800;
+}
+
+.countdown {
+    text-align: center;
+    font-size: 30px;
+    font-weight: 800;
+    margin: 22px 0;
 }
 
 .meta {
     display: grid;
-    grid-template-columns:
-        repeat(3, 1fr);
-    gap: 12px;
-    margin-top: 22px;
+    grid-template-columns: repeat(3,1fr);
+    gap: 10px;
 }
 
 .meta div {
     background: #f8fafc;
+    padding: 14px;
     border-radius: 14px;
-    padding: 15px;
 }
 
 .label {
@@ -102,11 +102,43 @@ main {
     margin-top: 5px;
 }
 
-.card {
+.predictions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.prediction {
+    padding: 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 16px;
     background: white;
-    border-radius: 18px;
-    padding: 20px;
-    margin-top: 16px;
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.prediction.selected {
+    border-color: #111827;
+    background: #f3f4f6;
+}
+
+.result {
+    text-align: center;
+    margin-top: 14px;
+    font-weight: 700;
+}
+
+.share {
+    width: 100%;
+    padding: 14px;
+    border: 0;
+    border-radius: 14px;
+    background: #111827;
+    color: white;
+    font-weight: 700;
+    font-size: 16px;
+    cursor: pointer;
 }
 
 .muted {
@@ -138,14 +170,14 @@ main {
 <header>
 
 <a href="../">
-← Deutschland Match-Hub
+← مركز مباريات ألمانيا
 </a>
 
 </header>
 
 <main>
 
-<section class="hero">
+<section class="card">
 
 <div class="teams">
 
@@ -163,12 +195,19 @@ Germany
 
 </div>
 
+<div
+id="countdown"
+class="countdown"
+data-time="1790275500000">
+جاري حساب الوقت...
+</div>
+
 <div class="meta">
 
 <div>
 
 <div class="label">
-Datum & Uhrzeit
+التاريخ والوقت
 </div>
 
 <div class="value">
@@ -180,7 +219,7 @@ Datum & Uhrzeit
 <div>
 
 <div class="label">
-Wettbewerb
+المسابقة
 </div>
 
 <div class="value">
@@ -192,7 +231,7 @@ UEFA Nations League
 <div>
 
 <div class="label">
-Spielort
+المكان
 </div>
 
 <div class="value">
@@ -209,23 +248,33 @@ Spielort folgt
 <section class="card">
 
 <h2>
-⚽ Match-Hub
+🔥 تحدي المباراة
 </h2>
 
 <p class="muted">
-
-Diese Match-Seite wird automatisch
-aktualisiert, sobald neue Daten verfügbar sind.
-
+اختر توقعك. سيتم حفظ اختيارك على جهازك.
 </p>
 
-<p>
-🌍 The Netherlands
-</p>
+<div class="predictions">
 
-<p>
-🆔 Match ID: 2442738
-</p>
+<button
+class="prediction"
+data-choice="home">
+Netherlands
+</button>
+
+<button
+class="prediction"
+data-choice="away">
+Germany
+</button>
+
+</div>
+
+<div
+id="prediction-result"
+class="result">
+</div>
 
 </section>
 
@@ -233,20 +282,201 @@ aktualisiert, sobald neue Daten verfügbar sind.
 <section class="card">
 
 <h2>
-📊 البيانات القادمة
+📊 مركز المباراة
 </h2>
 
 <p class="muted">
-
-ستتم إضافة الإحصائيات والأخبار
-والتفاصيل الإضافية عندما تتوفر مصادر
-بيانات موثوقة لها.
-
+الإحصائيات والأخبار ستظهر هنا عندما تتوفر
+من مصادر بيانات موثوقة.
 </p>
 
 </section>
 
+
+<section class="card">
+
+<button
+class="share"
+onclick="shareMatch()">
+📤 مشاركة المباراة
+</button>
+
+</section>
+
 </main>
+
+
+<script>
+
+const countdown =
+document.getElementById("countdown");
+
+const target =
+Number(countdown.dataset.time);
+
+function updateCountdown() {
+
+    if (!target) {
+        countdown.textContent =
+            "موعد المباراة غير متوفر";
+        return;
+    }
+
+    const now =
+        Date.now();
+
+    let diff =
+        target - now;
+
+    if (diff <= 0) {
+        countdown.textContent =
+            "🔥 المباراة بدأت";
+        return;
+    }
+
+    const days =
+        Math.floor(
+            diff / 86400000
+        );
+
+    diff %= 86400000;
+
+    const hours =
+        Math.floor(
+            diff / 3600000
+        );
+
+    diff %= 3600000;
+
+    const minutes =
+        Math.floor(
+            diff / 60000
+        );
+
+    const seconds =
+        Math.floor(
+            (diff % 60000) / 1000
+        );
+
+    countdown.textContent =
+        days + " يوم · " +
+        hours + " ساعة · " +
+        minutes + " دقيقة · " +
+        seconds + " ثانية";
+}
+
+updateCountdown();
+
+setInterval(
+    updateCountdown,
+    1000
+);
+
+
+const buttons =
+    document.querySelectorAll(
+        ".prediction"
+    );
+
+const result =
+    document.getElementById(
+        "prediction-result"
+    );
+
+const storageKey =
+    "prediction-2442738";
+
+const saved =
+    localStorage.getItem(
+        storageKey
+    );
+
+if (saved) {
+    selectPrediction(saved);
+}
+
+buttons.forEach(button => {
+
+    button.addEventListener(
+        "click",
+        () => {
+
+            const choice =
+                button.dataset.choice;
+
+            localStorage.setItem(
+                storageKey,
+                choice
+            );
+
+            selectPrediction(
+                choice
+            );
+        }
+    );
+
+});
+
+
+function selectPrediction(choice) {
+
+    buttons.forEach(button => {
+
+        button.classList.toggle(
+            "selected",
+            button.dataset.choice === choice
+        );
+
+    });
+
+    if (choice === "home") {
+        result.textContent =
+            "تم حفظ توقعك: " +
+            "Netherlands";
+    } else {
+        result.textContent =
+            "تم حفظ توقعك: " +
+            "Germany";
+    }
+}
+
+
+async function shareMatch() {
+
+    const shareData = {
+        title:
+            "Netherlands – Germany",
+        text:
+            "🔥 تحدي مباراة Netherlands – Germany",
+        url:
+            window.location.href
+    };
+
+    try {
+
+        if (
+            navigator.share
+        ) {
+
+            await navigator.share(
+                shareData
+            );
+
+        } else {
+
+            await navigator.clipboard.writeText(
+                window.location.href
+            );
+
+            alert(
+                "تم نسخ رابط المباراة"
+            );
+        }
+
+    } catch (error) {}
+}
+
+</script>
 
 </body>
 
