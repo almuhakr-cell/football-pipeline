@@ -9,34 +9,76 @@
 <meta name="viewport"
 content="width=device-width,initial-scale=1">
 
-<title>Deutschland Spiele | Match-Hub</title>
+<title>
+Deutschland Spiele | Match-Hub
+</title>
 
 <meta name="description"
-content="Automatisch aktualisierte Spiele der deutschen Nationalmannschaft.">
+content="Automatisch aktualisierte kommende Spiele der deutschen Nationalmannschaft.">
 
 <style>
 
+* {
+    box-sizing: border-box;
+}
+
 body {
-    font-family: Arial, sans-serif;
-    background: #f4f4f4;
     margin: 0;
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+    background: #f2f4f7;
+    color: #111827;
+}
+
+header {
+    background: #111827;
+    color: white;
+    padding: 28px 18px;
 }
 
 main {
-    max-width: 800px;
+    width: min(900px, 100%);
     margin: auto;
-    padding: 20px;
+    padding: 16px;
+}
+
+.hero {
+    background: white;
+    border-radius: 20px;
+    padding: 24px;
+    margin-top: -10px;
+    box-shadow:
+        0 4px 20px
+        rgba(0,0,0,.06);
 }
 
 .card {
     background: white;
-    padding: 24px;
     border-radius: 18px;
-    margin: 15px 0;
+    padding: 20px;
+    margin-top: 16px;
+}
+
+.date {
+    font-size: 18px;
+    font-weight: 700;
 }
 
 .muted {
-    color: #666;
+    color: #6b7280;
+}
+
+.button {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: #111827;
+    color: white;
+    text-decoration: none;
+    font-weight: 700;
 }
 
 </style>
@@ -45,33 +87,45 @@ main {
 
 <body>
 
+<header>
+
+<h1>
+🇩🇪 Deutschland Match-Hub
+</h1>
+
+<p>
+Automatisch aktualisierte Spiele
+</p>
+
+</header>
+
 <main>
 
-<div class="card">
+<section class="hero">
 
-<h1>🇩🇪 Deutschland – Spiele</h1>
+<h2>
+🔜 Nächste Deutschland-Spiele
+</h2>
 
 <p class="muted">
-Diese Seite wird automatisch aktualisiert.
-</p>
 
-<p>
 Letzte Aktualisierung:
-22.09.2026 20:59
+22.09.2026 21:20
+
 </p>
 
-</div>
-
-<h2>🔜 Nächste Spiele</h2>
+</section>
 
 
 <div class="card">
 
-<h2>Netherlands – Germany</h2>
+<h2>
+Netherlands – Germany
+</h2>
 
-<p>
-<b>24.09.2026 · 18:45</b>
-</p>
+<div class="date">
+24.09.2026 · 18:45
+</div>
 
 <p>
 🏆 UEFA Nations League
@@ -81,8 +135,11 @@ Letzte Aktualisierung:
 📍 Spielort folgt
 </p>
 
-<a href="matches/netherlands---germany-2442738.html">
+<a class="button"
+href="matches/netherlands-germany-2442738.html">
+
 Match-Hub öffnen →
+
 </a>
 
 </div>
