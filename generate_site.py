@@ -1,173 +1,371 @@
 import json
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from html import escape
 
-API = (
-    "https://site.api.espn.com/apis/site/v2/sports/"
-    "soccer/all/teams/ger/schedule?limit=50"
-)
-
+API_BASE = "https://www.thesportsdb.com/api/v1/json/3"
 OUT = Path("docs")
-OUT.mkdir(exist_ok=True)
 
 
-def fetch():
+def get_json(url):
     req = urllib.request.Request(
-        API,
-        headers={"User-Agent": "football-match-engine/1.0"},
+        url,
+        headers={
+            "User-Agent": "football-pipeline/1.0",
+            "Accept": "application/json",
+        },
     )
+
     with urllib.request.urlopen(req, timeout=30) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def fmt_date(value):
+def fetch_matches():
+    query = urllib.parse.urlencode({"t": "Germany"})
+    search_url = f"{API_BASE}/searchteams.php?{query}"
+
+    data = get_json(search_url)
+    teams = data.get("teams") or []
+
+    team = None
+
+    for item in teams:
+        if (
+            (item.get("strTeam") or "").lower() == "germany"
+            and (item.get("strSport") or "").lower() == "soccer"
+        ):
+            team = item
+            break
+
+    if not team and teams:
+        team = teams[0]
+
+    if not team:
+        raise RuntimeError("Germany national team not found")
+
+    team_id = team["idTeam"]
+
+    matches_url = f"{API_BASE}/eventsnext.php?id={team_id}"
+    matches_data = get_json(matches_url)
+
+    return matches_data.get("events") or []
+
+
+def parse_datetime(event):
+    date = event.get("dateEvent")
+    time = event.get("strTime") or "00:00:00"
+
+    if not date:
+        return None
+
     try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return dt.astimezone().strftime("%d.%m.%Y · %H:%M")
+        return datetime.fromisoformat(
+            f"{date}T{time}"
+        ).replace(tzinfo=timezone.utc)
     except Exception:
-        return value or "Termin folgt"
+        return None
 
 
-def main():
-    data = fetch()
-    events = data.get("events", [])
+def format_date(dt):
+    if not dt:
+        return "Termin folgt"
 
-    now = datetime.now(timezone.utc)
-    matches = []
+    return dt.astimezone().strftime(
+        "%d.%m.%Y · %H:%M"
+    )
 
-    for event in events:
-        try:
-            dt = datetime.fromisoformat(
-                event["date"].replace("Z", "+00:00")
-            )
-        except Exception:
-            continue
 
-        competition = (event.get("competitions") or [{}])[0]
-        competitors = competition.get("competitors") or []
+def slugify(text, event_id):
+    slug = (
+        text.lower()
+        .replace(" ", "-")
+        .replace("–", "-")
+        .replace("/", "-")
+        .replace("&", "and")
+    )
 
-        if len(competitors) < 2:
-            continue
+    return f"{slug}-{event_id}"
 
-        teams = [
-            c.get("team", {}).get("displayName", "Team")
-            for c in competitors[:2]
-        ]
 
-        venue = (
-            competition.get("venue", {}).get("fullName")
-            or "Spielort folgt"
-        )
+def create_page(match):
+    home = match.get("strHomeTeam") or "Deutschland"
+    away = match.get("strAwayTeam") or "Gegner"
 
-        matches.append({
-            "date": dt,
-            "teams": teams,
-            "venue": venue,
-            "id": event.get("id", ""),
-        })
+    title = f"{home} – {away}"
 
-    matches.sort(key=lambda x: x["date"])
+    event_id = match.get("idEvent") or ""
 
-    upcoming = [m for m in matches if m["date"] >= now]
+    slug = slugify(title, event_id)
 
-    cards = []
+    dt = parse_datetime(match)
 
-    for match in upcoming[:20]:
-        title = " – ".join(match["teams"])
-        slug = (
-            title.lower()
-            .replace(" ", "-")
-            .replace("–", "-")
-            .replace("/", "-")
-        )
+    venue = match.get("strVenue") or "Spielort folgt"
 
-        detail_dir = OUT / "matches"
-        detail_dir.mkdir(exist_ok=True)
+    league = (
+        match.get("strLeague")
+        or "Nationalmannschaft"
+    )
 
-        detail = f"""<!doctype html>
-<html lang="de">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{escape(title)} | Match-Hub</title>
-<style>
-body{{font-family:Arial,sans-serif;background:#f4f4f4;margin:0}}
-main{{max-width:800px;margin:auto;padding:20px}}
-.card{{background:white;padding:22px;border-radius:18px;margin:15px 0}}
-a{{color:#155eef}}
-</style>
-</head>
-<body>
-<main>
-<p><a href="../">← Alle Spiele</a></p>
-<div class="card">
-<h1>{escape(title)}</h1>
-<h2>{fmt_date(match["date"].isoformat())}</h2>
-<p>📍 {escape(match["venue"])}</p>
-</div>
-
-<div class="card">
-<h2>Match-Hub</h2>
-<p>Übertragung, Aufstellung, Live-Infos und weitere Informationen
-werden hier automatisch ergänzt.</p>
-</div>
-</main>
-</body>
-</html>"""
-
-        (detail_dir / f"{slug}.html").write_text(
-            detail, encoding="utf-8"
-        )
-
-        cards.append(f"""
-<div class="card">
-<h2>{escape(title)}</h2>
-<p><b>{fmt_date(match["date"].isoformat())}</b></p>
-<p>📍 {escape(match["venue"])}</p>
-<a href="matches/{slug}.html">Match-Hub öffnen →</a>
-</div>
-""")
+    detail_dir = OUT / "matches"
+    detail_dir.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
     html = f"""<!doctype html>
 <html lang="de">
+
 <head>
+
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Deutschland Spiele | Match-Hub</title>
+
+<meta name="viewport"
+content="width=device-width,initial-scale=1">
+
+<title>{escape(title)} | Deutschland Match-Hub</title>
+
 <meta name="description"
-content="Aktuelle Spiele der deutschen Nationalmannschaft.">
+content="{escape(title)} – Termin, Spielort und Match-Informationen.">
+
 <style>
-body{{font-family:Arial,sans-serif;background:#f4f4f4;margin:0}}
-main{{max-width:800px;margin:auto;padding:20px}}
-.card{{background:white;padding:22px;border-radius:18px;margin:15px 0}}
-.muted{{color:#666}}
+
+body {{
+    font-family: Arial, sans-serif;
+    background: #f4f4f4;
+    margin: 0;
+}}
+
+main {{
+    max-width: 800px;
+    margin: auto;
+    padding: 20px;
+}}
+
+.card {{
+    background: white;
+    padding: 24px;
+    border-radius: 18px;
+    margin: 15px 0;
+}}
+
+a {{
+    color: #155eef;
+}}
+
 </style>
+
 </head>
+
 <body>
+
 <main>
+
+<p>
+<a href="../">← Alle Deutschland-Spiele</a>
+</p>
+
 <div class="card">
+
+<h1>{escape(title)}</h1>
+
+<h2>{format_date(dt)}</h2>
+
+<p>
+🏆 {escape(league)}
+</p>
+
+<p>
+📍 {escape(venue)}
+</p>
+
+</div>
+
+<div class="card">
+
+<h2>⚽ Match-Hub</h2>
+
+<p>
+Alle wichtigen Informationen zu diesem Spiel
+werden automatisch auf dieser Seite aktualisiert.
+</p>
+
+</div>
+
+</main>
+
+</body>
+
+</html>
+"""
+
+    file = detail_dir / f"{slug}.html"
+
+    file.write_text(
+        html,
+        encoding="utf-8"
+    )
+
+    return slug, title, dt, venue, league
+
+
+def main():
+
+    OUT.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    events = fetch_matches()
+
+    now = datetime.now(timezone.utc)
+
+    matches = []
+
+    for event in events:
+
+        dt = parse_datetime(event)
+
+        if not dt:
+            continue
+
+        if dt < now:
+            continue
+
+        matches.append(event)
+
+    matches.sort(
+        key=lambda x: parse_datetime(x)
+    )
+
+    cards = []
+
+    for event in matches[:20]:
+
+        slug, title, dt, venue, league = create_page(
+            event
+        )
+
+        cards.append(
+            f"""
+<div class="card">
+
+<h2>{escape(title)}</h2>
+
+<p>
+<b>{format_date(dt)}</b>
+</p>
+
+<p>
+🏆 {escape(league)}
+</p>
+
+<p>
+📍 {escape(venue)}
+</p>
+
+<a href="matches/{slug}.html">
+Match-Hub öffnen →
+</a>
+
+</div>
+"""
+        )
+
+    if not cards:
+
+        cards.append(
+            """
+<div class="card">
+Keine kommenden Spiele gefunden.
+</div>
+"""
+        )
+
+    html = f"""<!doctype html>
+
+<html lang="de">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta name="viewport"
+content="width=device-width,initial-scale=1">
+
+<title>Deutschland Spiele | Match-Hub</title>
+
+<meta name="description"
+content="Automatisch aktualisierte Spiele der deutschen Nationalmannschaft.">
+
+<style>
+
+body {{
+    font-family: Arial, sans-serif;
+    background: #f4f4f4;
+    margin: 0;
+}}
+
+main {{
+    max-width: 800px;
+    margin: auto;
+    padding: 20px;
+}}
+
+.card {{
+    background: white;
+    padding: 24px;
+    border-radius: 18px;
+    margin: 15px 0;
+}}
+
+.muted {{
+    color: #666;
+}}
+
+</style>
+
+</head>
+
+<body>
+
+<main>
+
+<div class="card">
+
 <h1>🇩🇪 Deutschland – Spiele</h1>
+
 <p class="muted">
 Diese Seite wird automatisch aktualisiert.
 </p>
-<p>Letzte Aktualisierung:
-{datetime.now().strftime("%d.%m.%Y %H:%M")}</p>
+
+<p>
+Letzte Aktualisierung:
+{datetime.now().astimezone().strftime("%d.%m.%Y %H:%M")}
+</p>
+
 </div>
 
 <h2>🔜 Nächste Spiele</h2>
 
-{''.join(cards) or
-'<div class="card">Keine Spiele قادمة في المصدر حاليًا.</div>'}
+{''.join(cards)}
 
 </main>
+
 </body>
-</html>"""
 
-    (OUT / "index.html").write_text(html, encoding="utf-8")
+</html>
+"""
 
-    print(f"Created {len(upcoming)} upcoming matches.")
+    (OUT / "index.html").write_text(
+        html,
+        encoding="utf-8"
+    )
+
+    print(
+        f"Created {len(matches)} upcoming matches."
+    )
 
 
 if __name__ == "__main__":
